@@ -1,3 +1,6 @@
 language: objective-c
 xcode_project: "Framework Project/ORSSerialPort.xcodeproj"
 xcode_scheme: ORSSerial
+osx_image:
+    - xcode8
+    - beta-xcode6.1
