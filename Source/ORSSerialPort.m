@@ -188,8 +188,9 @@ static __strong NSMutableArray *allSerialPorts;
     NSFileManager *fileManager = [[NSFileManager alloc] init];
     BOOL isDir;
     
-    if ([fileManager fileExistsAtPath:filePath isDirectory:&isDir]
-        && !isDir
+    [fileManager fileExistsAtPath:filePath isDirectory:&isDir];
+    
+    if (!isDir
         && [fileManager isReadableFileAtPath:filePath]
         && [fileManager isWritableFileAtPath:filePath]) {
         
