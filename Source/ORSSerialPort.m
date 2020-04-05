@@ -150,7 +150,8 @@ static __strong NSMutableArray *allSerialPorts;
 	NSString *bsdPath = [[self class] bsdCalloutPathFromDevice:device];
 	ORSSerialPort *existingPort = [[self class] existingPortWithPath:bsdPath];
 	
-    if (existingPort != nil) {
+	if (existingPort != nil && IOObjectIsEqualTo(_IOKitDevice, device))
+	{
 		self = nil;
 		return existingPort;
 	}
