@@ -125,6 +125,9 @@ NS_ASSUME_NONNULL_BEGIN
  */
 @interface ORSSerialPort : NSObject
 
+
+
+
 /** ---------------------------------------------------------------------------------------
  * @name Getting a Serial Port
  *  ---------------------------------------------------------------------------------------
@@ -143,6 +146,7 @@ NS_ASSUME_NONNULL_BEGIN
  *  @see -[ORSSerialPortManager availablePorts]
  *  @see -initWithPath:
  */
+
 + (nullable ORSSerialPort *)serialPortWithPath:(NSString *)devicePath;
 
 /**
@@ -162,6 +166,27 @@ NS_ASSUME_NONNULL_BEGIN
  *  @see +serialPortWithPath:
  */
 + (nullable ORSSerialPort *)serialPortWithDevice:(io_object_t)device;
+
+
+/**
+*  Returns an `ORSSerialPort` instance representing the pseudo serial port at `filePath`.
+*
+*  `filePath` must be the full path to an available pseudo serial port device on the system.
+*
+*  Pseudo serial ports can be created with openpty() (OS X util.h), Python pty package and
+*  other libraries/packages.
+*
+*  It's likely that ORSSerialPortManager will not find the pseudo serial port and it will not
+*  be included in the return from [ORSSerialPortManager availablePorts]
+*
+*  @param filePath The full path (e.g. /dev/ttys002) to the device.
+*
+*  @return An initalized `ORSSerialPort` instance, or nil if there was an error.
+*
+*  @see -[ORSSerialPortManager availablePorts]
+*  @see -initPseudoDevice:
+*/
++ (nullable ORSSerialPort *)pseudoSerialPortWithPath:(NSString *)filePath;
 
 /**
  *  Returns an `ORSSerialPort` instance representing the serial port at `devicePath`.
@@ -200,6 +225,26 @@ NS_ASSUME_NONNULL_BEGIN
  * @name Opening and Closing
  *  ---------------------------------------------------------------------------------------
  */
+
+/**
+*  Returns an `ORSSerialPort` instance representing the pseudo serial port at `filePath`.
+*
+*  `filePath` must be the full path to an available pseudo serial port device on the system.
+*
+* Pseudo serial ports can be created with openpty() (OS X util.h), Python pty package and
+* other libraries/packages.
+*
+* Note: ORSSerialPortManager will not find your pseudo serial port and it will not be
+* included in the return from [ORSSerialPortManager availablePorts]
+*
+*  @param filePath The full path (e.g. /dev/ttys002) to the device.
+*
+*  @return An initalized `ORSSerialPort` instance, or nil if there was an error.
+*
+*  @see -[ORSSerialPortManager availablePorts]
+*  @see +serialPortWithPath:
+*/
+- (nullable instancetype)initPseudoDeviceWithPath:(NSString *)filePath;
 
 /**
  *  Opens the port represented by the receiver.

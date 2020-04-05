@@ -128,10 +128,17 @@ static __strong NSMutableArray *allSerialPorts;
 	return [[self alloc] initWithDevice:device];
 }
 
++ (ORSSerialPort *)pseudoSerialPortWithPath:(NSString *)filePath
+{
+    return [[self alloc] initPseudoDeviceWithPath:filePath];
+}
+
 - (instancetype)initWithPath:(NSString *)devicePath
 {
 	io_object_t device = [[self class] deviceFromBSDPath:devicePath];
-	if (device == 0) return nil;
+    if (device == 0) {
+        return nil;
+    }
 	
 	return [self initWithDevice:device];
 }
@@ -173,6 +180,50 @@ static __strong NSMutableArray *allSerialPorts;
 	[[self class] addSerialPort:self];
 	
 	return self;
+}
+
+- (instancetype)initPseudoDeviceWithPath:(NSString *)filePath {
+    
+    NSFileManager *fileManager = [[NSFileManager alloc] init];
+    BOOL isDir;
+    
+    if ([fileManager fileExistsAtPath:filePath isDirectory:&isDir]
+        && !isDir
+        && [fileManager isReadableFileAtPath:filePath]
+        && [fileManager isWritableFileAtPath:filePath]) {
+        
+        NSFileHandle * fileHandle = [NSFileHandle fileHandleForReadingAtPath:filePath];
+        
+        io_object_t device = fileHandle.fileDescriptor;
+        
+        self = [super init];
+        
+        if (self != nil) {
+            self.ioKitDevice = device;
+            self.path = filePath;
+            self.name = filePath;
+            self.requestHandlingQueue = dispatch_queue_create("com.openreelsoftware.ORSSerialPort.requestHandlingQueue", 0);
+            self.packetDescriptorsAndBuffers = [NSMapTable strongToStrongObjectsMapTable];
+            self.requestsQueue = [NSMutableArray array];
+            self.baudRate = @B19200;
+            self.allowsNonStandardBaudRates = NO;
+            self.numberOfStopBits = 1;
+            self.numberOfDataBits = 8;
+            self.parity = ORSSerialPortParityNone;
+            self.shouldEchoReceivedData = NO;
+            self.usesRTSCTSFlowControl = NO;
+            self.usesDTRDSRFlowControl = NO;
+            self.usesDCDOutputFlowControl = NO;
+            self.RTS = NO;
+            self.DTR = NO;
+        }
+        
+        [[self class] addSerialPort:self];
+        
+        return self;
+    } else {
+        return nil;
+    }
 }
 
 - (instancetype)init
