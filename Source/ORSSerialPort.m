@@ -73,6 +73,8 @@ static __strong NSMutableArray *allSerialPorts;
 @property (nonatomic, strong) dispatch_source_t pendingRequestTimeoutTimer;
 @property (nonatomic, strong) dispatch_queue_t requestHandlingQueue;
 
+@property (nonatomic, readwrite) BOOL isIOKitDevice;
+
 @end
 
 @implementation ORSSerialPort
@@ -130,7 +132,7 @@ static __strong NSMutableArray *allSerialPorts;
 
 + (ORSSerialPort *)pseudoSerialPortWithPath:(NSString *)filePath
 {
-    return [[self alloc] initPseudoDeviceWithPath:filePath];
+    return [[self alloc] initMockDeviceWithPath:filePath];
 }
 
 - (instancetype)initWithPath:(NSString *)devicePath
@@ -176,6 +178,7 @@ static __strong NSMutableArray *allSerialPorts;
 		self.usesDCDOutputFlowControl = NO;
 		self.RTS = NO;
 		self.DTR = NO;
+        self.isIOKitDevice = YES;
 	}
 	
 	[[self class] addSerialPort:self];
@@ -183,18 +186,17 @@ static __strong NSMutableArray *allSerialPorts;
 	return self;
 }
 
-- (instancetype)initPseudoDeviceWithPath:(NSString *)filePath {
-    
-    NSFileManager *fileManager = [[NSFileManager alloc] init];
+- (instancetype)initMockDeviceWithPath:(NSString *)filePath {
+        
     BOOL isDir;
     
-    [fileManager fileExistsAtPath:filePath isDirectory:&isDir];
+    [[NSFileManager defaultManager] fileExistsAtPath:filePath isDirectory:&isDir];
     
     if (!isDir
-        && [fileManager isReadableFileAtPath:filePath]
-        && [fileManager isWritableFileAtPath:filePath]) {
-        
-        NSFileHandle * fileHandle = [NSFileHandle fileHandleForReadingAtPath:filePath];
+        && [[NSFileManager defaultManager] isReadableFileAtPath:filePath]
+        && [[NSFileManager defaultManager] isWritableFileAtPath:filePath]) {
+                
+        NSFileHandle *fileHandle = [NSFileHandle fileHandleForUpdatingAtPath:filePath];
         
         io_object_t device = fileHandle.fileDescriptor;
         
@@ -218,6 +220,7 @@ static __strong NSMutableArray *allSerialPorts;
             self.usesDCDOutputFlowControl = NO;
             self.RTS = NO;
             self.DTR = NO;
+            self.isIOKitDevice = NO;
         }
         
         [[self class] addSerialPort:self];
@@ -290,17 +293,15 @@ static __strong NSMutableArray *allSerialPorts;
 		[self notifyDelegateOfPosixError];
 		return;
 	}
-	
-	// Now that the device is open, clear the O_NONBLOCK flag so subsequent I/O will block.
+
+    // Now that the device is open, clear the O_NONBLOCK flag so subsequent I/O will block.
 	// See fcntl(2) ("man 2 fcntl") for details.
 	
     if (fcntl(descriptor, F_SETFL, 0) == -1) {
 		LOG_SERIAL_PORT_ERROR(@"Error clearing O_NONBLOCK %@ - %s(%d).\n", self.path, strerror(errno), errno);
 	}
-	
 	self.fileDescriptor = descriptor;
 	
-
 	// Port opened successfully, set options
 	tcgetattr(descriptor, &originalPortAttributes); // Get original options so they can be reset later
 	[self setPortOptions];
@@ -345,26 +346,28 @@ static __strong NSMutableArray *allSerialPorts;
 			return;
 		}
 		
-		int32_t modemLines=0;
-		int result = ioctl(strongSelf.fileDescriptor, TIOCMGET, &modemLines);
-		if (result < 0) {
-			[strongSelf notifyDelegateOfPosixErrorWaitingUntilDone:(errno == ENXIO)];
-			if (errno == ENXIO) {
-				[strongSelf cleanupAfterSystemRemoval];
-			}
-			return;
-		}
+        if(self.isIOKitDevice) {
+            int32_t modemLines=0;
+            int result = ioctl(strongSelf.fileDescriptor, TIOCMGET, &modemLines);
+            if (result < 0) {
+                [strongSelf notifyDelegateOfPosixErrorWaitingUntilDone:(errno == ENXIO)];
+                if (errno == ENXIO) {
+                    [strongSelf cleanupAfterSystemRemoval];
+                }
+                return;
+            }
 		
-		BOOL CTSPin = (modemLines & TIOCM_CTS) != 0;
-		BOOL DSRPin = (modemLines & TIOCM_DSR) != 0;
-		BOOL DCDPin = (modemLines & TIOCM_CAR) != 0;
-		
-        if (CTSPin != strongSelf.CTS) { dispatch_sync(mainQueue, ^{ strongSelf.CTS = CTSPin; }); }
-			dispatch_sync(mainQueue, ^{strongSelf.CTS = CTSPin;});
-        if (DSRPin != strongSelf.DSR) { dispatch_sync(mainQueue, ^{ strongSelf.DSR = DSRPin; }); }
-			dispatch_sync(mainQueue, ^{strongSelf.DSR = DSRPin;});
-        if (DCDPin != strongSelf.DCD) { dispatch_sync(mainQueue, ^{ strongSelf.DCD = DCDPin; }); }
-			dispatch_sync(mainQueue, ^{strongSelf.DCD = DCDPin;});
+            BOOL CTSPin = (modemLines & TIOCM_CTS) != 0;
+            BOOL DSRPin = (modemLines & TIOCM_DSR) != 0;
+            BOOL DCDPin = (modemLines & TIOCM_CAR) != 0;
+            
+            if (CTSPin != strongSelf.CTS) { dispatch_sync(mainQueue, ^{ strongSelf.CTS = CTSPin; }); }
+                dispatch_sync(mainQueue, ^{strongSelf.CTS = CTSPin;});
+            if (DSRPin != strongSelf.DSR) { dispatch_sync(mainQueue, ^{ strongSelf.DSR = DSRPin; }); }
+                dispatch_sync(mainQueue, ^{strongSelf.DSR = DSRPin;});
+            if (DCDPin != strongSelf.DCD) { dispatch_sync(mainQueue, ^{ strongSelf.DCD = DCDPin; }); }
+                dispatch_sync(mainQueue, ^{strongSelf.DCD = DCDPin;});
+        }
 	});
 	self.pinPollTimer = timer;
 	dispatch_resume(self.pinPollTimer);
@@ -685,18 +688,20 @@ static __strong NSMutableArray *allSerialPorts;
 	// Set baud rate
 	cfsetspeed(&options, [[self baudRate] unsignedLongValue]);
 	
-	int result = tcsetattr(self.fileDescriptor, TCSANOW, &options);
-	if (result != 0) {
-		if (self.allowsNonStandardBaudRates) {
-			// Try to set baud rate via ioctl if normal port settings fail
-			int new_baud = [[self baudRate] intValue];
-			result = ioctl(self.fileDescriptor, IOSSIOSPEED, &new_baud, 1);
-		}
-		if (result != 0) {
-			// Notify delegate of port error stored in errno
-			[self notifyDelegateOfPosixError];
-		}
-	}
+    if(self.isIOKitDevice) {
+        int result = tcsetattr(self.fileDescriptor, TCSANOW, &options);
+        if (result != 0) {
+            if (self.allowsNonStandardBaudRates) {
+                // Try to set baud rate via ioctl if normal port settings fail
+                int new_baud = [[self baudRate] intValue];
+                result = ioctl(self.fileDescriptor, IOSSIOSPEED, &new_baud, 1);
+            }
+            if (result != 0) {
+                // Notify delegate of port error stored in errno
+                [self notifyDelegateOfPosixError];
+            }
+        }
+    }
 }
 
 + (io_object_t)deviceFromBSDPath:(NSString *)bsdPath;
@@ -953,11 +958,13 @@ static __strong NSMutableArray *allSerialPorts;
 {
 	if (![self isOpen]) return;
 
+    if(!(self.isIOKitDevice)) return;
+    
 	int bits;
 	ioctl( self.fileDescriptor, TIOCMGET, &bits ) ;
 	bits = self.RTS ? bits | TIOCM_RTS : bits & ~TIOCM_RTS;
 	bits = self.DTR ? bits | TIOCM_DTR : bits & ~TIOCM_DTR;
-	if (ioctl( self.fileDescriptor, TIOCMSET, &bits ) < 0)
+    if (ioctl( self.fileDescriptor, TIOCMSET, &bits ) < 0)
 	{
 		LOG_SERIAL_PORT_ERROR(@"Error in %s", __PRETTY_FUNCTION__);
 		[self notifyDelegateOfPosixError];

@@ -244,7 +244,7 @@ NS_ASSUME_NONNULL_BEGIN
 *  @see -[ORSSerialPortManager availablePorts]
 *  @see +serialPortWithPath:
 */
-- (nullable instancetype)initPseudoDeviceWithPath:(NSString *)filePath;
+- (nullable instancetype)initMockDeviceWithPath:(NSString *)filePath;
 
 /**
  *  Opens the port represented by the receiver.
